@@ -1,3 +1,4 @@
+
 package main
 //Import libraries
 import (
@@ -9,17 +10,21 @@ import (
   _ "github.com/mattn/go-sqlite3"
 
   "encoding/json"
+  "net/url"
+  "io/ioutil"
+  "encoding/xml"
 )
 //Struct Page
 type Page struct {
   Name string
   DBStatus bool
 }
+//Struct for the search result
 type SearchResult struct {
-  Title string
-  Author string
-  Year string
-  ID string
+  Title string `xml:"title,attr"`
+  Author string `xml:"author,attr"`
+  Year string `xml:"hyr,attr"`
+  ID string `xml:"owi,attr"`
 }
 //Function main
 func main() {
@@ -45,12 +50,13 @@ func main() {
   })
   //Stating the route /search
   http.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
-    //hard code results
-    results := []SearchResult{
-      SearchResult{"Moby-Dick", "Herman Melville", "1851", "222222"},
-      SearchResult{"The Adventures of Huckleberry finn", "Mark Twain", "1884", "44444"},
-      SearchResult{"The Catcher in the Rye", "JD Salinger", "1951", "333333"},
+    var results []SearchResult
+    var err error
+    //Call the function search
+    if results, err = search(r.FormValue("search")); err != nil {
+      http.Error(w, err.Error(), http.StatusInternalServerError)
     }
+
     //return json
     encoder := json.NewEncoder(w)
     if err := encoder.Encode(results); err != nil {
@@ -60,4 +66,32 @@ func main() {
 
   //Start the web server using the default mux
   fmt.Println(http.ListenAndServe(":8080", nil))
+}
+//Struct for the Classify the resutl request
+type ClassifySearchResponse struct {
+  Results []SearchResult `xml:"works>work"`
+}
+//Function Search
+func search(query string) ([]SearchResult, error) {
+  //Method from the HTTP package
+  var resp *http.Response
+  //var for the error
+  var err error
+  //Request using the method get
+  if resp, err = http.Get("http://classify.oclc.org/classify2/Classify?&summary=true&title=" + url.QueryEscape(query)); err != nil {
+    return []SearchResult{}, err
+  }
+  //Read the result
+  defer resp.Body.Close()
+  var body []byte
+  //ioutil read the content xml and set the body with the xml
+  if body, err = ioutil.ReadAll(resp.Body); err != nil {
+    return []SearchResult{}, err
+  }
+  //c content the structure
+  var c ClassifySearchResponse
+  //set c the the xml
+  err = xml.Unmarshal(body, &c)
+  //return the result or the error
+  return c.Results, err
 }
